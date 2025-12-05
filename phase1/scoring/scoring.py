@@ -320,7 +320,7 @@ def show_result(local_score: dict, is_show_graph: bool = False):
     print("\n" + "=" * 70)
 
     print("🎯 Performance:")
-    print(f"  Brut PnL:        { local_score["stats"]["cumulative_return"]*100:.2f}%")
+    # print(f"  Brut PnL:        { local_score["stats"]["cumulative_return"]*100:.2f}%")
 
 
     if is_show_graph:
