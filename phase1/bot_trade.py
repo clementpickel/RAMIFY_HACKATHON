@@ -1,68 +1,84 @@
 import numpy as np
 from collections import deque
-import random
 
-class MeanReversionTradingBot:
+class AdaptiveRobustTradingBot:
     def __init__(self):
-        self.price_window = deque(maxlen=100)
+        self.price_window = deque(maxlen=200)
         self.last_action = 0.5
-        random.seed(None)
         
     def calculate_allocation(self, prices, epoch):
-        if len(prices) < 20:
-            return 0.7  # Start with slight bias to asset
+        if len(prices) < 30:
+            return 0.5
         
         p = np.array(prices)
         
-        # Simple trend detection
-        sma_5 = np.mean(p[-5:])
-        sma_10 = np.mean(p[-10:])
+        # 1. Volatility & Regime
+        returns = np.diff(p) / p[:-1]
+        vol_20 = np.std(returns[-20:]) if len(returns) >= 20 else 0.01
+        # Cap min volatility to avoid division by zero or huge signals
+        vol_20 = max(vol_20, 0.002)
+        
+        # Normalize momentum by volatility (Sharpe-like signal)
+        mom_5 = (p[-1] / p[-6] - 1) if len(p) > 5 else 0
+        mom_10 = (p[-1] / p[-11] - 1) if len(p) > 10 else 0
+        mom_20 = (p[-1] / p[-21] - 1) if len(p) > 20 else 0
+        
+        # Z-Scores (Signal Strength)
+        sig_5 = mom_5 / (vol_20 * np.sqrt(5))
+        sig_10 = mom_10 / (vol_20 * np.sqrt(10))
+        sig_20 = mom_20 / (vol_20 * np.sqrt(20))
+        
+        # Aggregate Signal (Trend)
+        trend_signal = (0.5 * sig_5) + (0.3 * sig_10) + (0.2 * sig_20)
+        
+        # Efficiency Ratio (Trend Purity)
+        change_10 = np.abs(p[-1] - p[-11])
+        path_10 = np.sum(np.abs(np.diff(p[-11:])))
+        er_10 = change_10 / path_10 if path_10 > 0 else 0
+        
+        # Mean Reversion Signal (Bollinger Band / Deviation)
         sma_20 = np.mean(p[-20:])
-        sma_50 = np.mean(p[-50:]) if len(p) >= 50 else sma_20
+        dev_20 = (p[-1] - sma_20) / (vol_20 * p[-1]) # Normalized deviation
         
-        # Momentum
-        mom_5 = (p[-1] - p[-6]) / p[-6] if len(p) > 5 else 0
-        mom_10 = (p[-1] - p[-11]) / p[-11] if len(p) > 10 else 0
+        # Allocation Logic
+        allocation = 0.5
         
-        # Base: mostly invested since asset has positive return
-        allocation = 0.8
+        if er_10 > 0.25: 
+            # TREND REGIME
+            # Use sigmoid on trend_signal
+            # Steepness 4, offset 0.0
+            allocation = 1 / (1 + np.exp(-4 * trend_signal))
+            
+            # Boost if very clean trend
+            if er_10 > 0.5:
+                if trend_signal > 0.5: allocation = 1.0
+                elif trend_signal < -0.5: allocation = 0.0
+                
+        else:
+            # MEAN REVERSION REGIME (Choppy)
+            # Fade the move: if price is high (dev_20 > 0), sell. If low, buy.
+            # dev_20 is roughly Z-score of price vs SMA
+            
+            if dev_20 > 2.0: allocation = 0.0 # Top of band
+            elif dev_20 < -2.0: allocation = 1.0 # Bottom of band
+            else:
+                # Linear mapping between -2 and 2
+                # -2 -> 1.0, 2 -> 0.0
+                allocation = 0.5 - (dev_20 * 0.25)
         
-        # Slight adjustments based on short-term trend
-        if sma_5 > sma_10 > sma_20:
-            allocation = 0.95
-        elif sma_5 > sma_10:
-            allocation = 0.9
-        elif sma_5 < sma_10 < sma_20:
-            allocation = 0.6
-        elif sma_5 < sma_10:
-            allocation = 0.7
-        
-        # Momentum boost
-        if mom_5 > 0.01:
-            allocation = min(allocation * 1.1, 1.0)
-        elif mom_5 < -0.01:
-            allocation = max(allocation * 0.9, 0.5)
-        
-        # Longer-term trend
-        if len(p) >= 50 and p[-1] > sma_50:
-            allocation = min(allocation * 1.05, 1.0)
-        elif len(p) >= 50 and p[-1] < sma_50:
-            allocation = max(allocation * 0.95, 0.6)
-        
-        # Noise
-        noise = ((epoch * 11 + 17) % 23) / 400.0
-        allocation = np.clip(allocation + noise - 0.03, 0.0, 1.0)
+        # Clip
+        allocation = np.clip(allocation, 0.0, 1.0)
         
         return float(allocation)
 
-bot = MeanReversionTradingBot()
+bot = AdaptiveRobustTradingBot()
 
 def make_decision(epoch: int, price: float):
     global bot
     
     bot.price_window.append(price)
     
-    if len(bot.price_window) < 20:
+    if len(bot.price_window) < 30:
         return {'Asset A': 0.5, 'Cash': 0.5}
     
     prices = list(bot.price_window)

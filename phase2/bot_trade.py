@@ -61,7 +61,7 @@ class AdaptiveRobustTradingBot:
         allocation = 1 / (1 + np.exp(-8 * (composite_signal - 0.1))) # Shifted sigmoid
         
         # Apply ER filter
-        if er_10 > 0.6: # Lower threshold for clean trend
+        if er_10 > 0.4: # Lower threshold for clean trend
             if composite_signal > 0: allocation = 1.0
             else: allocation = 0.0
             
