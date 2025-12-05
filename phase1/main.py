@@ -12,7 +12,7 @@ sys.dont_write_bytecode = True
 from scoring.scoring import get_local_score, show_result
 import pandas as pd
 from bot_trade import make_decision as decision_generator
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as pltx
 
 
 def find_csv_file(path_csv: str) -> pd.DataFrame:

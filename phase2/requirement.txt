@@ -1,10 +1,8 @@
 matplotlib
 pandas
 numpy
-
-# Optional dependencies below (uncomment if needed)
-# scipy
-# scikit-learn
+scikit-learn
+scipy
 # xgboost
 # lightgbm
 # catboost
