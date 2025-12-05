@@ -39,6 +39,26 @@ class HyperAggressiveTradingBot:
         vol = np.std(returns)
         mean_ret = np.mean(returns)
         
+        # Volatility breakout detection
+        vol_short = np.std(np.diff(p[-10:]) / p[-10:-1]) if len(p) >= 10 else vol
+        vol_ratio = vol_short / vol if vol > 0.001 else 1.0
+        vol_expanding = vol_ratio > 1.3  # Volatility expanding - potential breakout
+        vol_contracting = vol_ratio < 0.7  # Volatility contracting - compression
+        
+        # Breakout detection - new highs/lows
+        recent_high = np.max(p[-20:])
+        recent_low = np.min(p[-20:])
+        at_new_high = p[-1] >= recent_high * 0.999
+        at_new_low = p[-1] <= recent_low * 1.001
+        
+        # Price position relative to range
+        price_range = recent_high - recent_low
+        if price_range > 0:
+            range_position = (p[-1] - recent_low) / price_range
+        else:
+            range_position = 0.5
+        
+        # RSI calculation
         deltas = np.diff(p[-14:]) if len(p) >= 14 else np.diff(p)
         gains = np.where(deltas > 0, deltas, 0)
         losses = np.where(deltas < 0, -deltas, 0)
@@ -74,11 +94,11 @@ class HyperAggressiveTradingBot:
         explosive_up = (accel_1 > 0.003 and accel_2 > 0.002 and mom_1 > 0.003)
         explosive_down = (accel_1 < -0.003 and accel_2 < -0.002 and mom_1 < -0.003)
         
-        # Maximum exposure on strongest signals
-        if explosive_up or (mega_uptrend and mom_20 > 0.03):
+        # Maximum exposure on strongest signals + breakouts
+        if explosive_up or (mega_uptrend and mom_20 > 0.03) or (at_new_high and vol_expanding and mom_5 > 0.01):
             allocation = 1.0
             self.trend_strength = 10
-        elif explosive_down or (mega_downtrend and mom_20 < -0.03):
+        elif explosive_down or (mega_downtrend and mom_20 < -0.03) or (at_new_low and vol_expanding and mom_5 < -0.01):
             allocation = 0.0
             self.trend_strength = -10
         elif mega_uptrend:
@@ -126,28 +146,54 @@ class HyperAggressiveTradingBot:
         elif sma_10 < sma_20:
             allocation = 0.20 if mom_10 < 0 else 0.30
         
-        # Ultra-reactive to immediate momentum
-        if mom_1 > 0.004:
-            allocation = min(allocation * 1.25, 1.0)
-        elif mom_1 > 0.002:
-            allocation = min(allocation * 1.15, 1.0)
+        # Ultra-reactive to immediate momentum - EXTREME
+        if mom_1 > 0.006:
+            allocation = 1.0  # Instant full allocation on strong move
+        elif mom_1 > 0.004:
+            allocation = min(allocation * 1.35, 1.0)
+        elif mom_1 > 0.0025:
+            allocation = min(allocation * 1.2, 1.0)
+        elif mom_1 > 0.0015:
+            allocation = min(allocation * 1.1, 1.0)
+        elif mom_1 < -0.006:
+            allocation = 0.0  # Instant exit on strong drop
         elif mom_1 < -0.004:
-            allocation = max(allocation * 0.75, 0.0)
-        elif mom_1 < -0.002:
-            allocation = max(allocation * 0.85, 0.0)
+            allocation = max(allocation * 0.65, 0.0)
+        elif mom_1 < -0.0025:
+            allocation = max(allocation * 0.8, 0.0)
+        elif mom_1 < -0.0015:
+            allocation = max(allocation * 0.9, 0.0)
         
-        if mom_2 > 0.004 and mom_3 > 0.006:
-            allocation = min(allocation * 1.15, 1.0)
+        # Multi-level momentum confirmation with compound boost
+        if mom_2 > 0.006 and mom_3 > 0.008 and mom_5 > 0.01:
+            allocation = 1.0  # Triple confirmation = max allocation
+        elif mom_2 > 0.004 and mom_3 > 0.006:
+            allocation = min(allocation * 1.3, 1.0)
+        elif mom_2 > 0.003 and mom_3 > 0.004:
+            allocation = min(allocation * 1.18, 1.0)
+        elif mom_2 < -0.006 and mom_3 < -0.008 and mom_5 < -0.01:
+            allocation = 0.0  # Triple negative = full exit
         elif mom_2 < -0.004 and mom_3 < -0.006:
-            allocation = max(allocation * 0.85, 0.0)
+            allocation = max(allocation * 0.7, 0.0)
+        elif mom_2 < -0.003 and mom_3 < -0.004:
+            allocation = max(allocation * 0.82, 0.0)
         
         if rsi > 85 and allocation > 0.85:
             allocation *= 0.95
         elif rsi < 15 and allocation < 0.15:
             allocation = allocation + (0.5 - allocation) * 0.3
         
-        if vol < 0.012 and abs(allocation - 0.5) > 0.2:
+        # Volatility boost - contracting vol = bigger moves coming
+        if vol_contracting and abs(allocation - 0.5) > 0.3:
+            allocation = 0.5 + (allocation - 0.5) * 1.5
+        elif vol < 0.012 and abs(allocation - 0.5) > 0.2:
             allocation = 0.5 + (allocation - 0.5) * 1.8
+        
+        # Range position amplification
+        if range_position > 0.85 and mom_5 > 0.008:  # High in range + momentum up
+            allocation = min(allocation * 1.2, 1.0)
+        elif range_position < 0.15 and mom_5 < -0.008:  # Low in range + momentum down
+            allocation = max(allocation * 0.8, 0.0)
         
         if len(p) >= 50:
             if p[-1] > sma_50 * 1.015 and mom_50 > 0.02:
