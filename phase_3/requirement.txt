@@ -1,6 +1,8 @@
 matplotlib
 pandas
 numpy
+scikit-learn
+joblib
 
 # Optional dependencies below (uncomment if needed)
 # scipy
