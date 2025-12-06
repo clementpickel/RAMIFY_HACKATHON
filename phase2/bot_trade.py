@@ -4,6 +4,7 @@ from collections import deque
 class AdaptiveRobustTradingBot:
     def __init__(self):
         self.price_window = deque(maxlen=200)
+        self.er_window = deque(maxlen=50)
         
     def calculate_allocation(self, prices):
         if len(prices) < 30:
@@ -29,11 +30,29 @@ class AdaptiveRobustTradingBot:
         path_10 = np.sum(np.abs(np.diff(p[-11:])))
         er_10 = change_10 / path_10 if path_10 > 0 else 0
         
-        allocation = 1 / (1 + np.exp(-100 * (composite_signal - 0.1)))
+        self.er_window.append(er_10)
+        avg_er = np.mean(self.er_window) if len(self.er_window) > 10 else 0.5
         
-        if er_10 > 0.4:
-            if composite_signal > 0: allocation = 1.0
-            else: allocation = 0.0
+        # Regime Detection
+        if avg_er > 0.35:
+            # TRENDING ASSET (Asset B)
+            # Aggressive Trend Following
+            allocation = 1 / (1 + np.exp(-100 * (composite_signal - 0.1)))
+            
+            # Strict ER filter (Best for Asset B)
+            if er_10 > 0.4:
+                if composite_signal > 0: allocation = 1.0
+                else: allocation = 0.0
+        else:
+            # CHOPPY ASSET (Asset A)
+            # Conservative / Mean Reversion
+            # For now, let's just be VERY strict with trend
+            if er_10 > 0.6: # Only trade if trend is extremely clear
+                allocation = 1 / (1 + np.exp(-20 * (composite_signal - 0.1)))
+                if composite_signal > 0: allocation = 1.0
+                else: allocation = 0.0
+            else:
+                allocation = 0.0 # Stay out of chop
             
         return float(np.clip(allocation, 0.0, 1.0))
 
